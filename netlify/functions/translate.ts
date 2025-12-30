@@ -31,98 +31,111 @@ export default async (req: Request, context: Context) => {
             return new Response(JSON.stringify({ error: "Missing text or targetLang" }), { status: 400 });
         }
 
+        const providers = [];
+        if (groqKey && groqKey.length > 5) providers.push("Groq");
+        if (cerebrasKey && cerebrasKey.length > 5) providers.push("Cerebras");
+
+        if (providers.length === 0) {
+            return new Response(JSON.stringify({
+                error: "No API keys configured. Set GROQ_API_KEY or CEREBRAS_API_KEY in Netlify UI."
+            }), { status: 500 });
+        }
+
+        // Randomize order
+        if (Math.random() < 0.5) providers.reverse();
+
         let translatedText = "";
-        let providerUsed = "";
+        let finalProvider = "";
+        const errors: string[] = [];
 
-        // Determine initial choice
-        let tryCerebrasFirst = Math.random() < 0.5;
-        if (!cerebrasKey || cerebrasKey.length < 5) tryCerebrasFirst = false;
-        if (!groqKey || groqKey.length < 5) tryCerebrasFirst = true;
-
-        if (!groqKey && !cerebrasKey) {
-            return new Response(JSON.stringify({ error: "No API keys configured" }), { status: 500 });
-        }
-
-        // --- ATTEMPT 1: CEREBRAS ---
-        if (tryCerebrasFirst && cerebrasKey) {
-            providerUsed = "Cerebras";
+        for (const provider of providers) {
             try {
-                const response = await fetch("https://api.cerebras.ai/v1/chat/completions", {
-                    method: "POST",
-                    headers: {
-                        "Authorization": `Bearer ${cerebrasKey}`,
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        model: "llama3.1-70b",
-                        messages: [
-                            { role: "system", content: `Translate to ${targetLang}. Return ONLY the translation text.` },
-                            { role: "user", content: text }
-                        ],
-                        temperature: 0.1
-                    })
-                });
+                if (provider === "Cerebras") {
+                    console.log("Trying Cerebras...");
+                    const response = await fetch("https://api.cerebras.ai/v1/chat/completions", {
+                        method: "POST",
+                        headers: {
+                            "Authorization": `Bearer ${cerebrasKey}`,
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            model: "llama-3.3-70b", // Updated to a very common model
+                            messages: [
+                                { role: "system", content: `Translate to ${targetLang}. Only return the translation.` },
+                                { role: "user", content: text }
+                            ],
+                            temperature: 0.1
+                        })
+                    });
 
-                if (response.ok) {
-                    const data = await response.json();
-                    translatedText = data.choices?.[0]?.message?.content?.trim() || "";
-                    console.log("Cerebras translation success");
-                } else {
-                    const err = await response.text();
-                    console.error("Cerebras API returned error:", response.status, err);
+                    if (response.ok) {
+                        const data = await response.json();
+                        translatedText = data.choices?.[0]?.message?.content?.trim() || "";
+                        if (translatedText) {
+                            finalProvider = "Cerebras";
+                            break;
+                        } else {
+                            errors.push("Cerebras: Empty response content");
+                        }
+                    } else {
+                        const errText = await response.text();
+                        errors.push(`Cerebras API (${response.status}): ${errText.substring(0, 100)}`);
+                    }
+                } else if (provider === "Groq") {
+                    console.log("Trying Groq...");
+                    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                        method: "POST",
+                        headers: {
+                            "Authorization": `Bearer ${groqKey}`,
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            model: "llama-3.3-70b-versatile",
+                            messages: [
+                                { role: "system", content: `Translate to ${targetLang}. Only return the translation.` },
+                                { role: "user", content: text }
+                            ],
+                            temperature: 0.1
+                        })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        translatedText = data.choices?.[0]?.message?.content?.trim() || "";
+                        if (translatedText) {
+                            finalProvider = "Groq";
+                            break;
+                        } else {
+                            errors.push("Groq: Empty response content");
+                        }
+                    } else {
+                        const errText = await response.text();
+                        errors.push(`Groq API (${response.status}): ${errText.substring(0, 100)}`);
+                    }
                 }
             } catch (e: any) {
-                console.error("Cerebras fetch failed:", e.message);
+                errors.push(`${provider} Fetch Error: ${e.message}`);
             }
         }
 
-        // --- ATTEMPT 2: GROQ (or fallback if Cerebras failed/returned nothing) ---
-        if (!translatedText && groqKey) {
-            providerUsed = "Groq";
-            try {
-                const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                    method: "POST",
-                    headers: {
-                        "Authorization": `Bearer ${groqKey}`,
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        model: "llama-3.3-70b-versatile",
-                        messages: [
-                            { role: "system", content: `Translate to ${targetLang}. Return ONLY the translation text.` },
-                            { role: "user", content: text }
-                        ],
-                        temperature: 0.1
-                    })
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    translatedText = data.choices?.[0]?.message?.content?.trim() || "";
-                    console.log("Groq translation success");
-                } else {
-                    const err = await response.text();
-                    console.error("Groq API returned error:", response.status, err);
-                }
-            } catch (e: any) {
-                console.error("Groq fetch failed:", e.message);
-            }
-        }
-
-        // --- FINAL CHECK ---
         if (!translatedText) {
-            throw new Error(`Both providers failed or returned no result. Last provider tried: ${providerUsed}`);
+            return new Response(JSON.stringify({
+                error: "All configured providers failed.",
+                details: errors
+            }), {
+                status: 500,
+                headers: { "Content-Type": "application/json" }
+            });
         }
 
         return new Response(JSON.stringify({
             translatedText,
-            provider: providerUsed
+            provider: finalProvider
         }), {
             headers: { "Content-Type": "application/json" }
         });
 
     } catch (error: any) {
-        console.error("Final Translation Function Error:", error.message);
         return new Response(JSON.stringify({ error: error.message }), {
             status: 500,
             headers: { "Content-Type": "application/json" }

@@ -19,6 +19,9 @@ export async function translateText(text: string, targetLang: string): Promise<s
       try {
         const errorData = await response.json();
         errorMsg = errorData.error || `Server error: ${response.status}`;
+        if (errorData.details && Array.isArray(errorData.details)) {
+          errorMsg += ". Details: " + errorData.details.join(" | ");
+        }
       } catch (e) {
         errorMsg = `Server error: ${response.status} ${response.statusText}`;
       }
