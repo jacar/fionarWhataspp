@@ -9,6 +9,7 @@ const groq = new Groq({
 
 export async function translateText(text: string, targetLang: string): Promise<string> {
   if (!apiKey) {
+    console.error("Missing VITE_GROQ_API_KEY");
     throw new Error("Missing VITE_GROQ_API_KEY in environment variables");
   }
 
@@ -26,12 +27,13 @@ export async function translateText(text: string, targetLang: string): Promise<s
           content: text
         }
       ],
-      model: "moonshotai/kimi-k2-instruct-0905",
+      model: "llama-3.3-70b-versatile",
       temperature: 0.3,
     });
 
     return completion.choices[0]?.message?.content?.trim() || "";
   } catch (error: any) {
+    console.error("Translation error:", error);
     throw new Error(`Translation failed: ${error.message || 'Unknown error'}`);
   }
 }
