@@ -1,7 +1,7 @@
 import type { Context } from "@netlify/functions"
 
 export default async (req: Request, context: Context) => {
-    // Basic GET handler for health check
+    // Health check
     if (req.method === "GET") {
         const groqKey = process.env.GROQ_API_KEY || "";
         const cerebrasKey = process.env.CEREBRAS_API_KEY || "";
@@ -9,8 +9,8 @@ export default async (req: Request, context: Context) => {
             status: "ok",
             message: "Translate function is active",
             config: {
-                groq: groqKey.length > 5 ? "Configured (Length: " + groqKey.length + ")" : "Missing/Empty",
-                cerebras: cerebrasKey.length > 5 ? "Configured (Length: " + cerebrasKey.length + ")" : "Missing/Empty"
+                groq: groqKey.length > 5 ? "Configured" : "Missing",
+                cerebras: cerebrasKey.length > 5 ? "Configured" : "Missing"
             }
         }), {
             headers: { "Content-Type": "application/json" }
@@ -31,26 +31,22 @@ export default async (req: Request, context: Context) => {
             return new Response(JSON.stringify({ error: "Missing text or targetLang" }), { status: 400 });
         }
 
-        // Provider selection logic: balance and fallback
-        let useCerebras = Math.random() < 0.5;
+        let translatedText = "";
+        let providerUsed = "";
 
-        if (!cerebrasKey || cerebrasKey.length < 5) useCerebras = false;
-        if (!groqKey || groqKey.length < 5) useCerebras = true;
+        // Determine initial choice
+        let tryCerebrasFirst = Math.random() < 0.5;
+        if (!cerebrasKey || cerebrasKey.length < 5) tryCerebrasFirst = false;
+        if (!groqKey || groqKey.length < 5) tryCerebrasFirst = true;
 
         if (!groqKey && !cerebrasKey) {
-            return new Response(JSON.stringify({
-                error: "API Keys are not configured in Netlify environment variables. Please add GROQ_API_KEY and/or CEREBRAS_API_KEY."
-            }), { status: 500 });
+            return new Response(JSON.stringify({ error: "No API keys configured" }), { status: 500 });
         }
 
-        let translatedText = "";
-        let provider = "";
-
-        // Attempt choice 1
-        if (useCerebras && cerebrasKey) {
-            provider = "Cerebras";
+        // --- ATTEMPT 1: CEREBRAS ---
+        if (tryCerebrasFirst && cerebrasKey) {
+            providerUsed = "Cerebras";
             try {
-                console.log("Calling Cerebras API...");
                 const response = await fetch("https://api.cerebras.ai/v1/chat/completions", {
                     method: "POST",
                     headers: {
@@ -60,69 +56,73 @@ export default async (req: Request, context: Context) => {
                     body: JSON.stringify({
                         model: "llama3.1-70b",
                         messages: [
-                            { role: "system", content: `Translate to ${targetLang}. Return ONLY the translation.` },
+                            { role: "system", content: `Translate to ${targetLang}. Return ONLY the translation text.` },
                             { role: "user", content: text }
                         ],
-                        temperature: 0.3
+                        temperature: 0.1
                     })
                 });
 
                 if (response.ok) {
                     const data = await response.json();
-                    translatedText = data.choices[0]?.message?.content?.trim() || "";
+                    translatedText = data.choices?.[0]?.message?.content?.trim() || "";
+                    console.log("Cerebras translation success");
                 } else {
                     const err = await response.text();
-                    console.error("Cerebras API Error:", response.status, err);
-                    useCerebras = false; // Trigger fallback
+                    console.error("Cerebras API returned error:", response.status, err);
                 }
             } catch (e: any) {
-                console.error("Cerebras request failed:", e.message);
-                useCerebras = false;
+                console.error("Cerebras fetch failed:", e.message);
             }
         }
 
-        // Attempt choice 2 (or fallback from Cerebras)
-        if (!useCerebras && groqKey) {
-            provider = "Groq";
-            console.log("Calling Groq API...");
-            const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${groqKey}`,
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    model: "llama-3.3-70b-versatile",
-                    messages: [
-                        { role: "system", content: `Translate to ${targetLang}. Return ONLY the translation.` },
-                        { role: "user", content: text }
-                    ],
-                    temperature: 0.3
-                })
-            });
+        // --- ATTEMPT 2: GROQ (or fallback if Cerebras failed/returned nothing) ---
+        if (!translatedText && groqKey) {
+            providerUsed = "Groq";
+            try {
+                const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${groqKey}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        model: "llama-3.3-70b-versatile",
+                        messages: [
+                            { role: "system", content: `Translate to ${targetLang}. Return ONLY the translation text.` },
+                            { role: "user", content: text }
+                        ],
+                        temperature: 0.1
+                    })
+                });
 
-            if (response.ok) {
-                const data = await response.json();
-                translatedText = data.choices[0]?.message?.content?.trim() || "";
-            } else {
-                const err = await response.text();
-                console.error("Groq API Error:", response.status, err);
-                throw new Error(`Groq API returned ${response.status}: ${err}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    translatedText = data.choices?.[0]?.message?.content?.trim() || "";
+                    console.log("Groq translation success");
+                } else {
+                    const err = await response.text();
+                    console.error("Groq API returned error:", response.status, err);
+                }
+            } catch (e: any) {
+                console.error("Groq fetch failed:", e.message);
             }
         }
 
+        // --- FINAL CHECK ---
         if (!translatedText) {
-            throw new Error(`Translation failed: Selected provider (${provider}) returned no result.`);
+            throw new Error(`Both providers failed or returned no result. Last provider tried: ${providerUsed}`);
         }
 
-        console.log(`Successfully translated via ${provider}`);
-
-        return new Response(JSON.stringify({ translatedText, provider }), {
+        return new Response(JSON.stringify({
+            translatedText,
+            provider: providerUsed
+        }), {
             headers: { "Content-Type": "application/json" }
         });
 
     } catch (error: any) {
-        console.error("Handler Error:", error.message);
+        console.error("Final Translation Function Error:", error.message);
         return new Response(JSON.stringify({ error: error.message }), {
             status: 500,
             headers: { "Content-Type": "application/json" }
