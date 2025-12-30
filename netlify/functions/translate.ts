@@ -1,119 +1,129 @@
 import type { Context } from "@netlify/functions"
-import Groq from 'groq-sdk';
-import Cerebras from '@cerebras/cerebras_cloud_sdk';
 
 export default async (req: Request, context: Context) => {
     // Basic GET handler for health check
     if (req.method === "GET") {
-        const groqKeySet = !!process.env.GROQ_API_KEY;
-        const cerebrasKeySet = !!process.env.CEREBRAS_API_KEY;
+        const groqKey = process.env.GROQ_API_KEY || "";
+        const cerebrasKey = process.env.CEREBRAS_API_KEY || "";
         return new Response(JSON.stringify({
             status: "ok",
             message: "Translate function is active",
             config: {
-                groq: groqKeySet ? "Configured" : "Missing",
-                cerebras: cerebrasKeySet ? "Configured" : "Missing"
+                groq: groqKey.length > 5 ? "Configured (Length: " + groqKey.length + ")" : "Missing/Empty",
+                cerebras: cerebrasKey.length > 5 ? "Configured (Length: " + cerebrasKey.length + ")" : "Missing/Empty"
             }
         }), {
             headers: { "Content-Type": "application/json" }
         });
     }
 
-    // Only allow POST for actual translation
     if (req.method !== "POST") {
         return new Response("Method Not Allowed", { status: 405 });
     }
 
-    const groqApiKey = process.env.GROQ_API_KEY;
-    const cerebrasApiKey = process.env.CEREBRAS_API_KEY;
+    const groqKey = process.env.GROQ_API_KEY || "";
+    const cerebrasKey = process.env.CEREBRAS_API_KEY || "";
 
     try {
-        let body;
-        try {
-            body = await req.json();
-        } catch (e) {
-            return new Response(JSON.stringify({ error: "Invalid JSON in request body" }), { status: 400 });
-        }
-
-        const { text, targetLang } = body;
+        const { text, targetLang } = await req.json();
 
         if (!text || !targetLang) {
             return new Response(JSON.stringify({ error: "Missing text or targetLang" }), { status: 400 });
         }
 
-        console.log(`Translate request: ${text.substring(0, 20)}... -> ${targetLang}`);
-
-        // Logic to determine which provider to use
+        // Provider selection logic: balance and fallback
         let useCerebras = Math.random() < 0.5;
 
-        if (!cerebrasApiKey) useCerebras = false;
-        if (!groqApiKey) useCerebras = true;
+        if (!cerebrasKey || cerebrasKey.length < 5) useCerebras = false;
+        if (!groqKey || groqKey.length < 5) useCerebras = true;
 
-        if (!groqApiKey && !cerebrasApiKey) {
-            console.error("No API keys found in environment variables.");
-            return new Response(JSON.stringify({ error: "Server configuration error: Missing API Keys" }), { status: 500 });
+        if (!groqKey && !cerebrasKey) {
+            return new Response(JSON.stringify({
+                error: "API Keys are not configured in Netlify environment variables. Please add GROQ_API_KEY and/or CEREBRAS_API_KEY."
+            }), { status: 500 });
         }
 
         let translatedText = "";
         let provider = "";
 
         // Attempt choice 1
-        if (useCerebras && cerebrasApiKey) {
+        if (useCerebras && cerebrasKey) {
             provider = "Cerebras";
             try {
-                console.log("Using Cerebras...");
-                const cerebras = new Cerebras({ apiKey: cerebrasApiKey });
-                const completion = await cerebras.chat.completions.create({
-                    messages: [
-                        { role: "system", content: `You are a helpful translator. Translate the user's text to ${targetLang}. Return ONLY the translated text, no introductory or concluding remarks.` },
-                        { role: "user", content: text }
-                    ],
-                    model: 'llama3.1-70b',
-                    temperature: 0.3,
+                console.log("Calling Cerebras API...");
+                const response = await fetch("https://api.cerebras.ai/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${cerebrasKey}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        model: "llama3.1-70b",
+                        messages: [
+                            { role: "system", content: `Translate to ${targetLang}. Return ONLY the translation.` },
+                            { role: "user", content: text }
+                        ],
+                        temperature: 0.3
+                    })
                 });
-                translatedText = completion.choices[0]?.message?.content?.trim() || "";
+
+                if (response.ok) {
+                    const data = await response.json();
+                    translatedText = data.choices[0]?.message?.content?.trim() || "";
+                } else {
+                    const err = await response.text();
+                    console.error("Cerebras API Error:", response.status, err);
+                    useCerebras = false; // Trigger fallback
+                }
             } catch (e: any) {
-                console.error("Cerebras service error:", e.message);
-                // Fallback to Groq
+                console.error("Cerebras request failed:", e.message);
                 useCerebras = false;
             }
         }
 
-        // Attempt choice 2 (or fallback)
-        if (!useCerebras && groqApiKey) {
+        // Attempt choice 2 (or fallback from Cerebras)
+        if (!useCerebras && groqKey) {
             provider = "Groq";
-            try {
-                console.log("Using Groq...");
-                const groq = new Groq({ apiKey: groqApiKey });
-                const completion = await groq.chat.completions.create({
+            console.log("Calling Groq API...");
+            const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${groqKey}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    model: "llama-3.3-70b-versatile",
                     messages: [
-                        { role: "system", content: `You are a helpful translator. Translate the user's text to ${targetLang}. Return ONLY the translated text, no introductory or concluding remarks.` },
+                        { role: "system", content: `Translate to ${targetLang}. Return ONLY the translation.` },
                         { role: "user", content: text }
                     ],
-                    model: "llama-3.3-70b-versatile",
-                    temperature: 0.3,
-                });
-                translatedText = completion.choices[0]?.message?.content?.trim() || "";
-            } catch (e: any) {
-                console.error("Groq service error:", e.message);
-                throw new Error(`Groq failed: ${e.message}`);
+                    temperature: 0.3
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                translatedText = data.choices[0]?.message?.content?.trim() || "";
+            } else {
+                const err = await response.text();
+                console.error("Groq API Error:", response.status, err);
+                throw new Error(`Groq API returned ${response.status}: ${err}`);
             }
         }
 
         if (!translatedText) {
-            throw new Error("Target provider returned empty response");
+            throw new Error(`Translation failed: Selected provider (${provider}) returned no result.`);
         }
+
+        console.log(`Successfully translated via ${provider}`);
 
         return new Response(JSON.stringify({ translatedText, provider }), {
             headers: { "Content-Type": "application/json" }
         });
 
     } catch (error: any) {
-        console.error("Translation function failure:", error.message);
-        return new Response(JSON.stringify({
-            error: error.message,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        }), {
+        console.error("Handler Error:", error.message);
+        return new Response(JSON.stringify({ error: error.message }), {
             status: 500,
             headers: { "Content-Type": "application/json" }
         });
