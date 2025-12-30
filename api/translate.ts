@@ -1,13 +1,15 @@
-import type { Context } from "@netlify/functions"
+export const config = {
+    runtime: 'edge',
+};
 
-export default async (req: Request, context: Context) => {
+export default async (req: Request) => {
     // Health check
     if (req.method === "GET") {
         const groqKey = process.env.GROQ_API_KEY || "";
         const cerebrasKey = process.env.CEREBRAS_API_KEY || "";
         return new Response(JSON.stringify({
             status: "ok",
-            message: "Translate function is active",
+            message: "Vercel API Translate function is active",
             config: {
                 groq: groqKey.length > 5 ? "Configured" : "Missing",
                 cerebras: cerebrasKey.length > 5 ? "Configured" : "Missing"
@@ -37,7 +39,7 @@ export default async (req: Request, context: Context) => {
 
         if (providers.length === 0) {
             return new Response(JSON.stringify({
-                error: "No API keys configured. Set GROQ_API_KEY or CEREBRAS_API_KEY in Netlify UI."
+                error: "No API keys configured. Set GROQ_API_KEY or CEREBRAS_API_KEY in Vercel Environment Variables."
             }), { status: 500 });
         }
 
@@ -59,7 +61,7 @@ export default async (req: Request, context: Context) => {
                             "Content-Type": "application/json"
                         },
                         body: JSON.stringify({
-                            model: "llama-3.3-70b", // Updated to a very common model
+                            model: "llama-3.3-70b",
                             messages: [
                                 { role: "system", content: `Translate to ${targetLang}. Only return the translation.` },
                                 { role: "user", content: text }

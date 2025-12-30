@@ -2,7 +2,7 @@
 export async function translateText(text: string, targetLang: string): Promise<string> {
   if (!text.trim()) return "";
 
-  const functionUrl = '/.netlify/functions/translate';
+  const functionUrl = '/api/translate';
 
   try {
     const response = await fetch(functionUrl, {
