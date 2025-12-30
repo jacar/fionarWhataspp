@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@cerebras/cerebras_cloud_sdk": "^1.59.0",
     "@mintplex-labs/piper-tts-web": "^1.0.4",
     "@netlify/functions": "^5.1.2",
     "groq-sdk": "^0.37.0",
