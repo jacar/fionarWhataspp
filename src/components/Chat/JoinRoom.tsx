@@ -7,7 +7,7 @@ interface JoinRoomProps {
 
 export const JoinRoom: React.FC<JoinRoomProps> = ({ onJoin }) => {
     const [name, setName] = useState('');
-    const [lang, setLang] = useState('es');
+    const [lang, setLang] = useState('es-ES');
     const [action, setAction] = useState<'create' | 'join'>('create');
     const [remoteId, setRemoteId] = useState('');
 
@@ -41,11 +41,11 @@ export const JoinRoom: React.FC<JoinRoomProps> = ({ onJoin }) => {
                         onChange={e => setLang(e.target.value)}
                         style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #ddd' }}
                     >
-                        <option value="es">Spanish (Español)</option>
-                        <option value="en">English (English)</option>
-                        <option value="fr">French (Français)</option>
-                        <option value="de">German (Deutsch)</option>
-                        <option value="pt">Portuguese (Português)</option>
+                        <option value="es-ES">Spanish (Español)</option>
+                        <option value="en-US">English (English)</option>
+                        <option value="fr-FR">French (Français)</option>
+                        <option value="de-DE">German (Deutsch)</option>
+                        <option value="pt-PT">Portuguese (Português)</option>
                     </select>
                 </div>
 

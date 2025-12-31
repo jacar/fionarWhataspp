@@ -44,20 +44,26 @@ const ConnectedChat: React.FC<{ user: PeerUser, initialRemoteId: string | null }
     }, [initialRemoteId, myPeerId]);
 
     const handleSendMessage = async (text: string) => {
-        // Translate for the remote user first?
-        // STRATEGY: Send original text + target text.
-        // Or translate locally and send both.
-
         let translated = undefined;
+
         if (remoteUser && remoteUser.nativeLang !== user.nativeLang) {
-            console.log(`Translating ${text} from ${user.nativeLang} to ${remoteUser.nativeLang}`);
+            // Map code to Name
+            const langMap: Record<string, string> = {
+                'es-ES': 'Spanish',
+                'en-US': 'English',
+                'fr-FR': 'French',
+                'de-DE': 'German',
+                'pt-PT': 'Portuguese'
+            };
+
+            const targetName = langMap[remoteUser.nativeLang] || remoteUser.nativeLang;
+
+            console.log(`Chat: Translating "${text}" to ${targetName}`);
             try {
-                // We need full language names for Groq prompt ideally, but codes might work.
-                // Let's use a quick map or rely on Groq handling ISO codes (it usually does ok).
-                // Better: Reuse LANGUAGES map from Translator.
-                translated = await translateText(text, `${user.nativeLang} to ${remoteUser.nativeLang}`);
+                translated = await translateText(text, targetName);
+                console.log(`Chat: Translation result: ${translated}`);
             } catch (e) {
-                console.error("Translation fail", e);
+                console.error("Chat translation failed:", e);
             }
         }
 
