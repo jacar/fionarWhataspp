@@ -72,30 +72,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             recognition.interimResults = true;
             recognition.lang = user.nativeLang;
 
-            recognition.onresult = (event: any) => {
-                let finalTranscript = '';
-                let interimTranscript = '';
-
-                for (let i = 0; i < event.results.length; ++i) {
-                    const transcript = event.results[i][0].transcript;
-                    if (event.results[i].isFinal) {
-                        finalTranscript += transcript;
-                    } else {
-                        interimTranscript += transcript;
-                    }
-                }
-
-                // Update input with the combination of final and current interim
-                if (finalTranscript || interimTranscript) {
-                    setInput(finalTranscript + interimTranscript);
-                }
-            };
-
-            recognition.onerror = (err: any) => {
-                console.error("Speech Recognition Error", err);
-                setIsListening(false);
-            };
-
             recognition.onend = () => setIsListening(false);
             recognitionRef.current = recognition;
         }
@@ -109,15 +85,43 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
     };
 
+    const startTextRef = useRef('');
+
     const toggleListening = () => {
         if (!recognitionRef.current) return;
         if (isListening) {
             recognitionRef.current.stop();
         } else {
+            startTextRef.current = input; // Capture current input
             recognitionRef.current.start();
             setIsListening(true);
         }
     };
+
+    // Update Speech Recognition Results
+    useEffect(() => {
+        if (recognitionRef.current) {
+            recognitionRef.current.onresult = (event: any) => {
+                let finalTranscript = '';
+                let interimTranscript = '';
+
+                for (let i = 0; i < event.results.length; ++i) {
+                    const transcript = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcript;
+                    } else {
+                        interimTranscript += transcript;
+                    }
+                }
+
+                // Append new transcript to the starting text
+                const currentDictation = finalTranscript + interimTranscript;
+                if (currentDictation) {
+                    setInput(startTextRef.current + (startTextRef.current ? ' ' : '') + currentDictation);
+                }
+            };
+        }
+    }, [isListening]); // Re-bind when listening state changes to ensure closure has right refs if needed
 
     const speak = (text: string, lang: string) => {
         window.speechSynthesis.cancel();
@@ -172,9 +176,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         <video ref={remoteVideoRef} autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         <video ref={localVideoRef} autoPlay playsInline muted style={{ position: 'absolute', bottom: '1rem', right: '1rem', width: '150px', height: '200px', objectFit: 'cover', borderRadius: '8px', border: '2px solid white' }} />
                     </div>
-                    <div style={{ padding: '1rem', display: 'flex', justifyContent: 'center' }}>
-                        <button onClick={onEndCall} style={{ padding: '1rem 2rem', background: '#ef4444', color: 'white', border: 'none', borderRadius: '30px', fontWeight: 'bold' }}>
-                            End Call
+                    <div style={{ padding: '2rem', display: 'flex', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}>
+                        <button onClick={onEndCall} style={{ padding: '1rem 2.5rem', background: '#ef4444', color: 'white', border: 'none', borderRadius: '40px', fontWeight: 'bold', fontSize: '1.1rem', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
+                            Terminar Llamada 📵
                         </button>
                     </div>
                 </div>
