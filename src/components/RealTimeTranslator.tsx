@@ -11,22 +11,22 @@ declare global {
 }
 
 const LANGUAGES = [
-    { code: 'en', name: 'English' },
-    { code: 'es', name: 'Spanish' },
-    { code: 'fr', name: 'French' },
-    { code: 'de', name: 'German' },
-    { code: 'it', name: 'Italian' },
-    { code: 'pt', name: 'Portuguese' },
-    { code: 'ru', name: 'Russian' },
-    { code: 'zh', name: 'Chinese (Simplified)' },
-    { code: 'ja', name: 'Japanese' },
+    { code: 'en-US', name: 'English' },
+    { code: 'es-CO', name: 'Spanish' },
+    { code: 'fr-FR', name: 'French' },
+    { code: 'de-DE', name: 'German' },
+    { code: 'it-IT', name: 'Italian' },
+    { code: 'pt-BR', name: 'Portuguese' },
+    { code: 'ru-RU', name: 'Russian' },
+    { code: 'zh-CN', name: 'Chinese (Simplified)' },
+    { code: 'ja-JP', name: 'Japanese' },
 ];
 
 export const RealTimeTranslator: React.FC = () => {
     const [inputText, setInputText] = useState('');
     const [translatedText, setTranslatedText] = useState('');
-    const [sourceLang, setSourceLang] = useState('es'); // Default Spanish source
-    const [targetLang, setTargetLang] = useState('en'); // Default English target
+    const [sourceLang, setSourceLang] = useState('es-CO'); // Default Spanish source
+    const [targetLang, setTargetLang] = useState('en-US'); // Default English target
     const [isLoading, setIsLoading] = useState(false);
     const [isListening, setIsListening] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -54,12 +54,12 @@ export const RealTimeTranslator: React.FC = () => {
 
     // Update selected voice when target language changes or voices load
     useEffect(() => {
-        const availableVoices = voices.filter(v => v.lang.startsWith(targetLang));
+        const availableVoices = voices.filter(v => v.lang.startsWith(targetLang.split('-')[0]));
         if (availableVoices.length > 0) {
             let preferred: SpeechSynthesisVoice | undefined;
 
             // Specific logic for Spanish (prefer Colombia, then Latin America, then Mexico)
-            if (targetLang === 'es') {
+            if (targetLang.startsWith('es')) {
                 preferred = availableVoices.find(v => v.lang === 'es-CO'); // Colombia
                 if (!preferred) preferred = availableVoices.find(v => v.lang === 'es-419'); // Latin America
                 if (!preferred) preferred = availableVoices.find(v => v.lang === 'es-MX'); // Mexico
@@ -129,13 +129,9 @@ export const RealTimeTranslator: React.FC = () => {
     useEffect(() => {
         if (recognitionRef.current) {
             recognitionRef.current.lang = sourceLang;
-            // If we change lang while listening, restart
-            if (isListening) {
-                recognitionRef.current.stop();
-                setTimeout(() => recognitionRef.current.start(), 100);
-            }
+            console.log("Speech Recognition Lang set to:", sourceLang);
         }
-    }, [sourceLang, isListening]); // Added isListening to dependency array
+    }, [sourceLang]);
 
     // Translation Effect
     useEffect(() => {
