@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import './App.css';
 import { ChatManager } from './components/Chat/ChatManager';
 
