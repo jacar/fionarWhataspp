@@ -12,11 +12,11 @@ declare global {
 
 const LANGUAGES = [
     { code: 'en-US', name: 'English' },
-    { code: 'es-CO', name: 'Spanish' },
+    { code: 'es-ES', name: 'Spanish' },
     { code: 'fr-FR', name: 'French' },
     { code: 'de-DE', name: 'German' },
     { code: 'it-IT', name: 'Italian' },
-    { code: 'pt-BR', name: 'Portuguese' },
+    { code: 'pt-PT', name: 'Portuguese' },
     { code: 'ru-RU', name: 'Russian' },
     { code: 'zh-CN', name: 'Chinese (Simplified)' },
     { code: 'ja-JP', name: 'Japanese' },
@@ -25,7 +25,7 @@ const LANGUAGES = [
 export const RealTimeTranslator: React.FC = () => {
     const [inputText, setInputText] = useState('');
     const [translatedText, setTranslatedText] = useState('');
-    const [sourceLang, setSourceLang] = useState('es-CO'); // Default Spanish source
+    const [sourceLang, setSourceLang] = useState('es-ES'); // Default Spanish source
     const [targetLang, setTargetLang] = useState('en-US'); // Default English target
     const [isLoading, setIsLoading] = useState(false);
     const [isListening, setIsListening] = useState(false);
@@ -33,6 +33,7 @@ export const RealTimeTranslator: React.FC = () => {
 
     const timeoutRef = useRef<any>(null);
     const recognitionRef = useRef<any>(null);
+    const isListeningRef = useRef(false); // Ref to avoid stale closures
 
     const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
     const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
@@ -85,6 +86,12 @@ export const RealTimeTranslator: React.FC = () => {
             recognition.continuous = true;
             recognition.interimResults = true;
 
+            recognition.onstart = () => {
+                console.log("Speech recognition started");
+                setIsListening(true);
+                isListeningRef.current = true;
+            };
+
             recognition.onresult = (event: any) => {
                 let finalTrans = '';
                 let interimTrans = '';
@@ -104,21 +111,27 @@ export const RealTimeTranslator: React.FC = () => {
             };
 
             recognition.onerror = (event: any) => {
-                console.error("Speech recognition error", event.error);
+                console.error("Speech recognition error:", event.error);
                 if (event.error === 'not-allowed') {
-                    setIsListening(false);
-                    setError("Microphone access denied.");
+                    setError("Microphone access denied. Please check browser permissions.");
+                } else if (event.error === 'network') {
+                    setError("Network error. Speech recognition requires an internet connection.");
+                } else if (event.error === 'no-speech') {
+                    // This is common, we don't necessarily want to alert the user unless it's persistent
+                    console.warn("No speech detected.");
+                } else {
+                    setError(`Microphone error: ${event.error}`);
                 }
+                setIsListening(false);
+                isListeningRef.current = false;
             };
 
             recognition.onend = () => {
-                // Only stop if user explicitly stopped it, otherwise it might just be a pause
-                // But for simplicity, we'll let the user toggle it back on if it times out
-                // NOTE: We keep isListening true in state to show UI, but if it actually stopped
-                // we might need to click again. Let's sync state.
-                if (isListening) {
-                    setIsListening(false);
-                }
+                console.log("Speech recognition ended");
+                // Reset states
+                setIsListening(false);
+                isListeningRef.current = false;
+                setInterimTranscript('');
             };
 
             recognitionRef.current = recognition;
@@ -173,20 +186,33 @@ export const RealTimeTranslator: React.FC = () => {
 
     const toggleListening = () => {
         if (!recognitionRef.current) {
-            alert("Speech recognition not supported in this browser.");
+            alert("Speech recognition not supported in this browser. Try Chrome.");
             return;
         }
 
-        if (isListening) {
-            recognitionRef.current.stop();
-            setIsListening(false);
+        if (isListeningRef.current) {
+            try {
+                recognitionRef.current.stop();
+                console.log("Stopping recognition manual...");
+            } catch (e) {
+                console.error("Stop error:", e);
+            }
         } else {
             try {
+                // Update language before starting
+                recognitionRef.current.lang = sourceLang;
                 recognitionRef.current.start();
-                setIsListening(true);
                 setError(null);
+                console.log("Starting recognition manual in:", sourceLang);
             } catch (e) {
-                console.error(e);
+                console.error("Start error:", e);
+                // If it's already started, just sync state
+                if ((e as any).message?.includes("already started")) {
+                    setIsListening(true);
+                    isListeningRef.current = true;
+                } else {
+                    setError("Could not start microphone.");
+                }
             }
         }
     };
