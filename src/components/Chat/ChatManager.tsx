@@ -53,25 +53,43 @@ const ConnectedChat: React.FC<{ user: PeerUser, initialRemoteId: string | null }
     const handleSendMessage = async (text: string) => {
         let translated = undefined;
 
-        if (remoteUser && remoteUser.nativeLang !== user.nativeLang) {
-            // Map code to Name
-            const langMap: Record<string, string> = {
-                'es-ES': 'Spanish',
-                'en-US': 'English',
-                'fr-FR': 'French',
-                'de-DE': 'German',
-                'pt-PT': 'Portuguese'
-            };
+        console.log("Chat: Attempting to send message:", text);
+        console.log("Chat: Remote user state:", remoteUser);
 
-            const targetName = langMap[remoteUser.nativeLang] || remoteUser.nativeLang;
+        if (remoteUser) {
+            const myLang = user.nativeLang.split('-')[0].toLowerCase();
+            const targetLang = remoteUser.nativeLang.split('-')[0].toLowerCase();
 
-            console.log(`Chat: Translating "${text}" to ${targetName}`);
-            try {
-                translated = await translateText(text, targetName);
-                console.log(`Chat: Translation result: ${translated}`);
-            } catch (e) {
-                console.error("Chat translation failed:", e);
+            if (myLang !== targetLang) {
+                // Map common codes to full names for the AI
+                const langMap: Record<string, string> = {
+                    'es': 'Spanish',
+                    'en': 'English',
+                    'fr': 'French',
+                    'de': 'German',
+                    'pt': 'Portuguese',
+                    'it': 'Italian'
+                };
+
+                const targetName = langMap[targetLang] || remoteUser.nativeLang;
+
+                console.log(`Chat: Translating from ${myLang} to ${targetName}`);
+                try {
+                    translated = await translateText(text, targetName);
+                    if (!translated) {
+                        console.warn("Chat: Translation returned empty string");
+                    } else {
+                        console.log(`Chat: Translation success: ${translated}`);
+                    }
+                } catch (e: any) {
+                    console.error("Chat: Translation error:", e.message);
+                    // We still send the message but without translation
+                }
+            } else {
+                console.log("Chat: Skipping translation (same language family)");
             }
+        } else {
+            console.warn("Chat: Cannot translate, remoteUser is null");
         }
 
         sendMessage(text, translated);

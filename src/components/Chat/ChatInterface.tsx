@@ -73,12 +73,21 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             recognition.lang = user.nativeLang;
 
             recognition.onresult = (event: any) => {
-                let transcript = '';
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    transcript += event.results[i][0].transcript;
+                let finalTranscript = '';
+                let interimTranscript = '';
+
+                for (let i = 0; i < event.results.length; ++i) {
+                    const transcript = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcript;
+                    } else {
+                        interimTranscript += transcript;
+                    }
                 }
-                if (event.results[event.results.length - 1].isFinal) {
-                    setInput(prev => prev ? `${prev} ${transcript}` : transcript);
+
+                // Update input with the combination of final and current interim
+                if (finalTranscript || interimTranscript) {
+                    setInput(finalTranscript + interimTranscript);
                 }
             };
 
