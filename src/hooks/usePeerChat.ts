@@ -1,7 +1,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Peer from 'peerjs';
-import type { DataConnection } from 'peerjs';
+import type { DataConnection, MediaConnection } from 'peerjs';
 import type { ChatMessage, PeerUser } from '../components/Chat/types';
 
 export const usePeerChat = (user: PeerUser) => {
@@ -13,6 +13,12 @@ export const usePeerChat = (user: PeerUser) => {
 
     // Remote peer info
     const [remoteUser, setRemoteUser] = useState<PeerUser | null>(null);
+
+    // Media Streams
+    const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+    const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+    const [call, setCall] = useState<MediaConnection | null>(null);
+    const [isCalling, setIsCalling] = useState(false);
 
     const peerRef = useRef<Peer | null>(null);
 
@@ -26,8 +32,13 @@ export const usePeerChat = (user: PeerUser) => {
         });
 
         newPeer.on('connection', (conn) => {
-            console.log('Incoming connection from:', conn.peer);
+            console.log('Incoming data connection from:', conn.peer);
             setupConnection(conn);
+        });
+
+        newPeer.on('call', (incomingCall) => {
+            console.log('Incoming call from:', incomingCall.peer);
+            setCall(incomingCall);
         });
 
         newPeer.on('error', (err) => {
@@ -93,9 +104,7 @@ export const usePeerChat = (user: PeerUser) => {
 
         const newMessage: ChatMessage = {
             id: Date.now().toString(),
-            senderId: user.id, // technically we don't know our own ID until peer opens. 
-            // Actually user.id passed in might be just a temp ID. 
-            // Let's use peerRef.current.id
+            senderId: peerRef.current?.id || user.id,
             senderName: user.name,
             text: text,
             translatedText: translatedText,
@@ -113,6 +122,57 @@ export const usePeerChat = (user: PeerUser) => {
         addMessage(newMessage);
     };
 
+    const startCall = async () => {
+        if (!peerRef.current || !connection) return;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            setLocalStream(stream);
+
+            const newCall = peerRef.current.call(connection.peer, stream);
+            setIsCalling(true);
+            setCall(newCall);
+
+            newCall.on('stream', (remote) => {
+                setRemoteStream(remote);
+            });
+
+            newCall.on('close', () => {
+                endCall();
+            });
+        } catch (err) {
+            console.error("Failed to get local stream", err);
+            setError("Could not access camera/microphone");
+        }
+    };
+
+    const answerCall = async () => {
+        if (!call) return;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            setLocalStream(stream);
+            call.answer(stream);
+            setIsCalling(true);
+
+            call.on('stream', (remote) => {
+                setRemoteStream(remote);
+            });
+        } catch (err) {
+            console.error("Failed to answer call", err);
+            setError("Could not access camera/microphone");
+        }
+    };
+
+    const endCall = () => {
+        if (call) call.close();
+        if (localStream) {
+            localStream.getTracks().forEach(track => track.stop());
+        }
+        setCall(null);
+        setLocalStream(null);
+        setRemoteStream(null);
+        setIsCalling(false);
+    };
+
     return {
         myPeerId: peerId,
         connectToPeer,
@@ -120,6 +180,13 @@ export const usePeerChat = (user: PeerUser) => {
         messages,
         isConnected,
         error,
-        remoteUser
+        remoteUser,
+        startCall,
+        answerCall,
+        endCall,
+        localStream,
+        remoteStream,
+        incomingCall: !!call && !isCalling,
+        isCalling
     };
 };

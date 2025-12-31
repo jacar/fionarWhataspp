@@ -33,7 +33,14 @@ const ConnectedChat: React.FC<{ user: PeerUser, initialRemoteId: string | null }
         sendMessage,
         messages,
         remoteUser,
-        error
+        error,
+        startCall,
+        answerCall,
+        endCall,
+        localStream,
+        remoteStream,
+        incomingCall,
+        isCalling
     } = usePeerChat(user);
 
     // Auto-connect if joining
@@ -78,6 +85,13 @@ const ConnectedChat: React.FC<{ user: PeerUser, initialRemoteId: string | null }
             onSendMessage={handleSendMessage}
             myPeerId={myPeerId}
             connectionError={error}
+            onStartCall={startCall}
+            onAnswerCall={answerCall}
+            onEndCall={endCall}
+            localStream={localStream}
+            remoteStream={remoteStream}
+            isCalling={isCalling}
+            incomingCall={incomingCall}
         />
     );
 };
